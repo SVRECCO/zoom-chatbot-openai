@@ -5,6 +5,7 @@ import pool from "../config/database.js";
 import subscriptionService from "../services/subscription/subscriptionService.js";
 import { asyncHandler } from "../utils/errorHandler.js";
 import logger from "../utils/logger.js";
+import { normalizeJid } from "../utils/jidHelper.js";
 
 const router = express.Router();
 
@@ -43,8 +44,26 @@ router.post(
 
    const user = userResponse.data;
 
-   const userJid = user.id;
-   const userEmail = user.email;
+   let baseId;
+
+   if (user.id.includes("@") && user.id.includes(".")) {
+    baseId = user.id.split("@")[0];
+    logger.warn("user.id appears to be email, extracting base ID", {
+     userId: user.id,
+     extractedBaseId: baseId,
+    });
+   } else {
+    baseId = user.id.replace(/@xmpp\.zoom\.us$/i, "");
+   }
+
+   const userJid = normalizeJid(baseId);
+
+   logger.info("Constructed userJid from OAuth", {
+    originalUserId: user.id,
+    baseId,
+    normalizedJid: userJid,
+    email: user.email,
+   });
 
    let tier = "free";
    if (user.type === 2 || user.type === 3) {
@@ -80,7 +99,7 @@ router.post(
         `,
     [
      userJid,
-     userEmail,
+     user.email,
      user.first_name,
      user.last_name,
      user.id,
@@ -95,7 +114,7 @@ router.post(
 
    logger.info("User authenticated successfully", {
     userJid,
-    email: userEmail,
+    email: user.email,
     tier,
    });
 
@@ -106,7 +125,8 @@ router.post(
     expiresIn: expires_in,
     user: {
      id: user.id,
-     email: userEmail,
+     userJid: userJid,
+     email: user.email,
      firstName: user.first_name,
      lastName: user.last_name,
      type: user.type,
