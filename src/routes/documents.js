@@ -33,9 +33,6 @@ const ragieClient = new Ragie({
  auth: process.env.RAGIE_API_KEY,
 });
 
-/**
- * Middleware to verify authentication
- */
 const verifyAuth = async (req, res, next) => {
  const authHeader = req.headers.authorization;
 
@@ -72,9 +69,6 @@ const verifyAuth = async (req, res, next) => {
  }
 };
 
-/**
- * Upload a document
- */
 router.post(
  "/upload",
  verifyAuth,
@@ -87,7 +81,7 @@ router.post(
    });
   }
 
-  const { userJid } = req.body;
+  const userJid = req.userJid;
 
   const tier = await subscriptionService.getUserTier(userJid);
   if (tier !== "premium") {
@@ -163,21 +157,11 @@ router.post(
  })
 );
 
-/**
- * Get all documents for a user
- */
 router.get(
- "/:userJid",
+ "/",
  verifyAuth,
  asyncHandler(async (req, res) => {
-  const { userJid } = req.params;
-
-  if (req.userJid !== userJid) {
-   return res.status(403).json({
-    success: false,
-    message: "Access denied",
-   });
-  }
+  const userJid = req.userJid;
 
   try {
    const result = await pool.query(
@@ -235,22 +219,13 @@ router.get(
  })
 );
 
-/**
- * Delete a document
- */
 router.delete(
  "/:documentId",
  verifyAuth,
  asyncHandler(async (req, res) => {
   const { documentId } = req.params;
-  const { userJid } = req.body;
 
-  if (req.userJid !== userJid) {
-   return res.status(403).json({
-    success: false,
-    message: "Access denied",
-   });
-  }
+  const userJid = req.userJid;
 
   try {
    const result = await pool.query(
