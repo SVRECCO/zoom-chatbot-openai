@@ -6,6 +6,7 @@ import subscriptionService from "../services/subscription/subscriptionService.js
 import { asyncHandler } from "../utils/errorHandler.js";
 import logger from "../utils/logger.js";
 import { normalizeJid } from "../utils/jidHelper.js";
+import { encryptToken, decryptToken } from "../utils/tokenEncryption.js";
 
 const router = express.Router();
 
@@ -70,6 +71,9 @@ router.post(
     tier = "premium";
    }
 
+   const encryptedAccessToken = encryptToken(access_token);
+   const encryptedRefreshToken = encryptToken(refresh_token);
+
    await pool.query(
     `
         INSERT INTO users (
@@ -105,8 +109,8 @@ router.post(
      user.id,
      user.account_id,
      user.type,
-     access_token,
-     refresh_token,
+     encryptedAccessToken,
+     encryptedRefreshToken,
     ]
    );
 
@@ -114,7 +118,6 @@ router.post(
 
    logger.info("User authenticated successfully", {
     userJid,
-    email: user.email,
     tier,
    });
 
@@ -159,6 +162,30 @@ router.post(
   }
 
   try {
+   const userResult = await pool.query(
+    "SELECT user_jid, refresh_token FROM users WHERE refresh_token IS NOT NULL"
+   );
+
+   let userJid = null;
+   for (const row of userResult.rows) {
+    try {
+     const decrypted = decryptToken(row.refresh_token);
+     if (decrypted === refreshToken) {
+      userJid = row.user_jid;
+      break;
+     }
+    } catch (error) {
+     continue;
+    }
+   }
+
+   if (!userJid) {
+    return res.status(401).json({
+     success: false,
+     message: "Invalid refresh token",
+    });
+   }
+
    const tokenResponse = await axios.post("https://zoom.us/oauth/token", null, {
     params: {
      grant_type: "refresh_token",
@@ -172,6 +199,9 @@ router.post(
 
    const { access_token, refresh_token, expires_in } = tokenResponse.data;
 
+   const encryptedAccessToken = encryptToken(access_token);
+   const encryptedRefreshToken = encryptToken(refresh_token);
+
    await pool.query(
     `
         UPDATE users 
@@ -179,9 +209,9 @@ router.post(
             refresh_token = $2, 
             token_expires_at = NOW() + INTERVAL '1 hour',
             updated_at = CURRENT_TIMESTAMP
-        WHERE refresh_token = $3
+        WHERE user_jid = $3
         `,
-    [access_token, refresh_token, refreshToken]
+    [encryptedAccessToken, encryptedRefreshToken, userJid]
    );
 
    logger.info("Token refreshed successfully");
@@ -221,18 +251,28 @@ router.get(
 
   try {
    const result = await pool.query(
-    "SELECT * FROM users WHERE access_token = $1",
-    [token]
+    "SELECT * FROM users WHERE access_token IS NOT NULL AND token_expires_at > NOW()"
    );
 
-   if (result.rows.length === 0) {
+   let user = null;
+   for (const row of result.rows) {
+    try {
+     const decryptedToken = decryptToken(row.access_token);
+     if (decryptedToken === token) {
+      user = row;
+      break;
+     }
+    } catch (error) {
+     continue;
+    }
+   }
+
+   if (!user) {
     return res.status(401).json({
      success: false,
      message: "Invalid token",
     });
    }
-
-   const user = result.rows[0];
 
    const tier = await subscriptionService.getUserTier(user.user_jid);
 

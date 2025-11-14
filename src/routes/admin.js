@@ -20,19 +20,31 @@ const verifyAuth = async (req, res, next) => {
 
  try {
   const result = await pool.query(
-   "SELECT user_jid, email FROM users WHERE access_token = $1 AND token_expires_at > NOW()",
-   [token]
+   "SELECT user_jid, email, access_token FROM users WHERE token_expires_at > NOW()"
   );
 
-  if (result.rows.length === 0) {
+  let matchedUser = null;
+  for (const row of result.rows) {
+   try {
+    const decryptedToken = decryptToken(row.access_token);
+    if (decryptedToken === token) {
+     matchedUser = row;
+     break;
+    }
+   } catch (error) {
+    continue;
+   }
+  }
+
+  if (!matchedUser) {
    return res.status(401).json({
     success: false,
     message: "Invalid or expired token",
    });
   }
 
-  req.userJid = result.rows[0].user_jid;
-  req.userEmail = result.rows[0].email;
+  req.userJid = matchedUser.user_jid;
+  req.userEmail = matchedUser.email;
   next();
  } catch (error) {
   logger.error("Auth verification failed", { error: error.message });
