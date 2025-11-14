@@ -8,20 +8,7 @@
         "rag_enabled": false,
         "enabled_tools": []
       },
-      "displayMessage": "You have access to: *Basic AI chat only*\n\nUpgrade to unlock:\n> Mid Tier: Web search and advanced tools\n> Premium Tier: Knowledge base (RAG) integration"
-    },
-    "standard": {
-      "name": "Standard Tier",
-      "description": "AI assistance with web search and advanced tools",
-      "features": {
-        "ai_chat": true,
-        "rag_enabled": false,
-        "enabled_tools": [
-          "web_search",
-          "visit_website"
-        ]
-      },
-      "displayMessage": "You have access to: *AI chat + Web search\n\nUpgrade to Premium to unlock:\n> Knowledge base (RAG) integration for company-specific information"
+      "displayMessage": "You have access to: *Basic AI chat only*\n\nUpgrade to Premium to unlock:\n> Web search and advanced tools\n> Knowledge base (RAG) integration"
     },
     "premium": {
       "name": "Premium Tier",
