@@ -107,10 +107,10 @@ router.put(
   const { userJid } = req.params;
   const { tier } = req.body;
 
-  if (!tier || !["free", "standard", "premium"].includes(tier)) {
+  if (!tier || !["free", "premium"].includes(tier)) {
    return res.status(400).json({
     success: false,
-    error: "Invalid tier. Must be 'free', 'standard', or 'premium'",
+    error: "Invalid tier. Must be 'free' or 'premium'",
    });
   }
 
