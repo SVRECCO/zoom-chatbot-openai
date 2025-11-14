@@ -3,22 +3,22 @@ import zoomAuthService from "./authService.js";
 import zoomMessageService from "./messageService.js";
 import logger from "../../utils/logger.js";
 import { handleError } from "../../utils/errorHandler.js";
+import { normalizeJid } from "../../utils/jidHelper.js";
 
 class ZoomWebhookService {
- /**
-  * @private
-  * @param {Object} payload - Webhook payload
-  */
  async _handleBotNotification(payload) {
   try {
+   const userJid = normalizeJid(payload.toJid);
+
    logger.info("Processing bot notification", {
-    toJid: payload.toJid,
+    originalToJid: payload.toJid,
+    normalizedUserJid: userJid,
     cmd: payload.cmd,
    });
 
    const chatbotToken = await zoomAuthService.getChatbotToken();
 
-   const reply = await groqService.chat(payload.cmd, payload.toJid);
+   const reply = await groqService.chat(payload.cmd, userJid);
 
    await zoomMessageService.sendMessage(
     chatbotToken,
@@ -28,7 +28,7 @@ class ZoomWebhookService {
    );
 
    logger.info("Successfully processed bot notification", {
-    toJid: payload.toJid,
+    userJid,
    });
   } catch (error) {
    handleError(error, "Bot Notification Handler");
@@ -52,11 +52,6 @@ class ZoomWebhookService {
   logger.info("Zoom for Team Chat uninstalled");
  }
 
- /**
-  * @private
-  * @param {Object} payload - Webhook payload
-  * @param {Object} res - Express response object
-  */
  _handleUrlValidation(payload, res) {
   logger.info("Handling URL validation");
 
@@ -67,10 +62,6 @@ class ZoomWebhookService {
   });
  }
 
- /**
-  * @param {Object} req - Express request object
-  * @param {Object} res - Express response object
-  */
  async handleWebhook(req, res) {
   try {
    const { event, payload } = req.body;
