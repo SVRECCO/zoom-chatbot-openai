@@ -3,6 +3,7 @@ import multer from "multer";
 import { Ragie } from "ragie";
 import pool from "../config/database.js";
 import subscriptionService from "../services/subscription/subscriptionService.js";
+import workspaceService from "../services/workspace/workspaceService.js";
 import { asyncHandler } from "../utils/errorHandler.js";
 import logger from "../utils/logger.js";
 import { decryptToken } from "../utils/tokenEncryption.js";
@@ -96,6 +97,14 @@ router.post(
   }
 
   const userJid = req.userJid;
+  const visibility = req.body.visibility || "private";
+
+  if (!["private", "workspace"].includes(visibility)) {
+   return res.status(400).json({
+    success: false,
+    message: "Invalid visibility option. Must be 'private' or 'workspace'",
+   });
+  }
 
   const tier = await subscriptionService.getUserTier(userJid);
   if (tier !== "premium") {
@@ -105,9 +114,23 @@ router.post(
    });
   }
 
+  let workspaceId = null;
+  if (visibility === "workspace") {
+   const workspace = await workspaceService.getUserWorkspace(userJid);
+   if (!workspace) {
+    return res.status(400).json({
+     success: false,
+     message: "No workspace found for user",
+    });
+   }
+   workspaceId = workspace.workspace_id;
+  }
+
   try {
    logger.info("Uploading document to Ragie", {
     userJid,
+    visibility,
+    workspaceId,
     filename: req.file.originalname,
     size: req.file.size,
    });
@@ -116,12 +139,21 @@ router.post(
     type: req.file.mimetype,
    });
 
+   const metadata = {
+    uploadedBy: userJid,
+    uploadedAt: new Date().toISOString(),
+    visibility,
+   };
+
+   if (workspaceId) {
+    metadata.workspaceId = workspaceId;
+   } else {
+    metadata.userJid = userJid;
+   }
+
    const uploadResponse = await ragieClient.documents.create({
     file: file,
-    metadata: {
-     userJid: userJid,
-     uploadedAt: new Date().toISOString(),
-    },
+    metadata: metadata,
    });
 
    await pool.query(
@@ -129,16 +161,22 @@ router.post(
         INSERT INTO documents (
           document_id,
           user_jid,
+          workspace_id,
+          uploaded_by,
+          visibility,
           name,
           file_type,
           file_size,
           ragie_document_id,
           status
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         `,
     [
      uploadResponse.id,
+     visibility === "private" ? userJid : null,
+     workspaceId,
      userJid,
+     visibility,
      req.file.originalname,
      req.file.mimetype,
      req.file.size,
@@ -150,12 +188,14 @@ router.post(
    logger.info("Document uploaded successfully", {
     userJid,
     documentId: uploadResponse.id,
+    visibility,
    });
 
    res.status(200).json({
     success: true,
     message: "File uploaded successfully",
     documentId: uploadResponse.id,
+    visibility,
    });
   } catch (error) {
    logger.error("Document upload failed", {
@@ -176,23 +216,96 @@ router.get(
  verifyAuth,
  asyncHandler(async (req, res) => {
   const userJid = req.userJid;
+  const scope = req.query.scope || "all";
 
   try {
-   const result = await pool.query(
-    `
-        SELECT 
-          document_id as id,
-          name,
-          status,
-          created_at as "createdAt",
-          file_size as size,
-          file_type as type
-        FROM documents
-        WHERE user_jid = $1
-        ORDER BY created_at DESC
-        `,
-    [userJid]
-   );
+   let query;
+   let params;
+
+   if (scope === "private") {
+    query = `
+          SELECT 
+            document_id as id,
+            name,
+            visibility,
+            status,
+            created_at as "createdAt",
+            file_size as size,
+            file_type as type
+          FROM documents
+          WHERE user_jid = $1 AND visibility = 'private'
+          ORDER BY created_at DESC
+        `;
+    params = [userJid];
+   } else if (scope === "workspace") {
+    const workspace = await workspaceService.getUserWorkspace(userJid);
+    if (!workspace) {
+     return res.status(200).json({
+      success: true,
+      documents: [],
+     });
+    }
+
+    query = `
+          SELECT 
+            d.document_id as id,
+            d.name,
+            d.visibility,
+            d.status,
+            d.created_at as "createdAt",
+            d.file_size as size,
+            d.file_type as type,
+            u.email as uploaded_by_email,
+            u.first_name || ' ' || u.last_name as uploaded_by_name
+          FROM documents d
+          LEFT JOIN users u ON d.uploaded_by = u.user_jid
+          WHERE d.workspace_id = $1 AND d.visibility = 'workspace'
+          ORDER BY d.created_at DESC
+        `;
+    params = [workspace.workspace_id];
+   } else {
+    const workspace = await workspaceService.getUserWorkspace(userJid);
+
+    if (!workspace) {
+     query = `
+            SELECT 
+              document_id as id,
+              name,
+              visibility,
+              status,
+              created_at as "createdAt",
+              file_size as size,
+              file_type as type,
+              NULL as uploaded_by_email,
+              NULL as uploaded_by_name
+            FROM documents
+            WHERE user_jid = $1 AND visibility = 'private'
+            ORDER BY created_at DESC
+          `;
+     params = [userJid];
+    } else {
+     query = `
+            SELECT 
+              d.document_id as id,
+              d.name,
+              d.visibility,
+              d.status,
+              d.created_at as "createdAt",
+              d.file_size as size,
+              d.file_type as type,
+              u.email as uploaded_by_email,
+              u.first_name || ' ' || u.last_name as uploaded_by_name
+            FROM documents d
+            LEFT JOIN users u ON d.uploaded_by = u.user_jid
+            WHERE (d.user_jid = $1 AND d.visibility = 'private')
+               OR (d.workspace_id = $2 AND d.visibility = 'workspace')
+            ORDER BY d.created_at DESC
+          `;
+     params = [userJid, workspace.workspace_id];
+    }
+   }
+
+   const result = await pool.query(query, params);
 
    const documentsWithChunks = await Promise.all(
     result.rows.map(async (doc) => {
@@ -238,12 +351,13 @@ router.delete(
  verifyAuth,
  asyncHandler(async (req, res) => {
   const { documentId } = req.params;
-
   const userJid = req.userJid;
 
   try {
    const result = await pool.query(
-    "SELECT user_jid FROM documents WHERE document_id = $1",
+    `SELECT user_jid, workspace_id, uploaded_by, visibility 
+         FROM documents 
+         WHERE document_id = $1`,
     [documentId]
    );
 
@@ -254,10 +368,29 @@ router.delete(
     });
    }
 
-   if (result.rows[0].user_jid !== userJid) {
+   const doc = result.rows[0];
+
+   let canDelete = false;
+
+   if (doc.visibility === "private" && doc.user_jid === userJid) {
+    canDelete = true;
+   } else if (doc.visibility === "workspace") {
+    if (doc.uploaded_by === userJid) {
+     canDelete = true;
+    } else {
+     const isAdmin = await workspaceService.isWorkspaceAdmin(
+      userJid,
+      doc.workspace_id
+     );
+     canDelete = isAdmin;
+    }
+   }
+
+   if (!canDelete) {
     return res.status(403).json({
      success: false,
-     message: "Access denied",
+     message:
+      "Access denied. You don't have permission to delete this document.",
     });
    }
 
