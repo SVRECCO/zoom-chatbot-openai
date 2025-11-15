@@ -4,6 +4,7 @@ import adminRouter from "./admin.js";
 import authRouter from "./auth.js";
 import documentsRouter from "./documents.js";
 import databaseAdminRouter from "./database-admin.js";
+import workspaceRouter from "./workspace.js";
 
 const router = express.Router();
 
@@ -31,5 +32,7 @@ router.use("/documents", documentsRouter);
 router.use("/admin", adminRouter);
 
 router.use("/admin/database", databaseAdminRouter);
+
+router.use("/workspace", workspaceRouter);
 
 export default router;
