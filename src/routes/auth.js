@@ -7,6 +7,7 @@ import { asyncHandler } from "../utils/errorHandler.js";
 import logger from "../utils/logger.js";
 import { normalizeJid } from "../utils/jidHelper.js";
 import { encryptToken, decryptToken } from "../utils/tokenEncryption.js";
+import workspaceService from "../services/workspace/workspaceService.js";
 
 const router = express.Router();
 
@@ -64,6 +65,17 @@ router.post(
     baseId,
     normalizedJid: userJid,
     email: user.email,
+    accountId: user.account_id,
+   });
+
+   const workspace = await workspaceService.getOrCreateWorkspace(
+    user.account_id,
+    `${user.account_id} Workspace`
+   );
+
+   logger.info("Workspace created/retrieved", {
+    workspaceId: workspace.workspace_id,
+    zoomAccountId: user.account_id,
    });
 
    let tier = "free";
@@ -114,11 +126,25 @@ router.post(
     ]
    );
 
+   const userRole = user.type === 2 || user.type === 3 ? "admin" : "member";
+   await workspaceService.addUserToWorkspace(
+    workspace.workspace_id,
+    userJid,
+    userRole
+   );
+
+   logger.info("User added to workspace", {
+    userJid,
+    workspaceId: workspace.workspace_id,
+    role: userRole,
+   });
+
    await subscriptionService.setUserTier(userJid, tier);
 
    logger.info("User authenticated successfully", {
     userJid,
     tier,
+    workspaceId: workspace.workspace_id,
    });
 
    res.status(200).json({
@@ -133,6 +159,10 @@ router.post(
      firstName: user.first_name,
      lastName: user.last_name,
      type: user.type,
+    },
+    workspace: {
+     id: workspace.workspace_id,
+     name: workspace.name,
     },
    });
   } catch (error) {
