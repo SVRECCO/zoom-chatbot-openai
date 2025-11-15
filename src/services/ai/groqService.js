@@ -8,6 +8,7 @@ import prompts from "../../constants/prompts.json" with { type: "json" };
 import logger from "../../utils/logger.js";
 import { generateThreadId } from "../../utils/dateFormatter.js";
 import { AppError } from "../../utils/errorHandler.js";
+import workspaceService from "../workspace/workspaceService.js";
 
 class GroqService {
   constructor() {
@@ -61,10 +62,6 @@ class GroqService {
     });
   }
 
-  /**
-   * @param {string} userJid - User's JID
-   * @returns {Promise<string>} Feature description
-   */
   async _buildFeaturesDescription(userJid) {
     const tier = await subscriptionService.getUserTier(userJid);
     const config = subscriptionService.getTierConfig(tier);
@@ -87,12 +84,6 @@ class GroqService {
     return features;
   }
 
-  /**
-   * @param {string} context - Retrieved context from RAG
-   * @param {string} userJid - User's JID for tier checking
-   * @param {string} promptType - Type of prompt to use (default 'ragbee')
-   * @returns {Promise<string>} System prompt with context and datetime
-   */
   async _buildSystemPrompt(context, userJid, promptType = "ragbee") {
     const promptConfig = prompts[promptType];
 
@@ -112,10 +103,6 @@ class GroqService {
     return systemPrompt;
   }
 
-  /**
-   * @param {Object} lastMessage - Last message from LLM
-   * @returns {string} Extracted content
-   */
   _extractContent(lastMessage) {
     if (typeof lastMessage?.content === "string") {
       return lastMessage.content;
@@ -128,10 +115,6 @@ class GroqService {
     return String(lastMessage?.content || "");
   }
 
-  /**
-   * @param {string} userJid - User's JID
-   * @returns {Promise<Object>} Configured LLM instance
-   */
   async _createTieredLLM(userJid) {
     const enabledTools = await subscriptionService.getEnabledTools(userJid);
     
@@ -153,32 +136,37 @@ class GroqService {
     });
   }
 
-  /**
-   * @param {string} question - Users question
-   * @param {string} userJid - Users JID for thread management and tier checking
-   * @param {string} promptType - Type of prompt to use
-   * @returns {Promise<string>} AI response
-   */
   async chat(question, userJid, promptType = "ragbee") {
-    if (!this.initialized) {
-      await this.initialize();
-    }
+  if (!this.initialized) {
+    await this.initialize();
+  }
 
-    try {
-      logger.info("Processing chat request", { question, userJid, promptType });
+  try {
+    logger.info("Processing chat request", { question, userJid, promptType });
 
-      const threadId = generateThreadId(userJid);
+    const threadId = generateThreadId(userJid);
 
-      const hasRagAccess = await subscriptionService.hasFeatureAccess(userJid, "rag");
+    const hasRagAccess = await subscriptionService.hasFeatureAccess(userJid, "rag");
+    
+    let context = "";
+    if (hasRagAccess) {
+      const workspace = await workspaceService.getUserWorkspace(userJid);
+      const workspaceId = workspace?.workspace_id || null;
       
-      let context = "";
-      if (hasRagAccess) {
-        context = await ragieService.retrieveContext(question ,userJid);
-        logger.info("RAG context retrieved", { userJid, contextLength: context.length });
-      } else {
-        context = "No knowledge base context available. Using general AI knowledge only.";
-        logger.info("RAG access denied for user tier", { userJid });
-      }
+      context = await ragieService.retrieveContext(
+        question,
+        userJid,
+        workspaceId
+      );
+      logger.info("RAG context retrieved", {
+        userJid,
+        workspaceId,
+        contextLength: context.length,
+      });
+    } else {
+      context = "No knowledge base context available. Using general AI knowledge only.";
+      logger.info("RAG access denied for user tier", { userJid });
+    }
 
       const systemPrompt = await this._buildSystemPrompt(context, userJid, promptType);
 
