@@ -130,3 +130,4 @@ dist
 .yarn/install-state.gz
 .pnp.*
 scripts/setup-database.js
+scripts/migrateToWorkspaces.js
