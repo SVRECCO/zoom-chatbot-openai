@@ -131,3 +131,4 @@ dist
 .pnp.*
 scripts/setup-database.js
 scripts/migrateToWorkspaces.js
+scripts/fixJidCasing.js
