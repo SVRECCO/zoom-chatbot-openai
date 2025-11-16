@@ -3,12 +3,17 @@ export function normalizeJid(jid) {
 
  const baseId = jid.replace(/@xmpp\.zoom\.us$/i, "").trim();
 
- return `${baseId}@xmpp.zoom.us`;
+ const normalizedBaseId = baseId.toLowerCase();
+
+ return `${normalizedBaseId}@xmpp.zoom.us`;
 }
 
 export function extractBaseId(jid) {
  if (!jid) return null;
- return jid.replace(/@xmpp\.zoom\.us$/i, "").trim();
+ return jid
+  .replace(/@xmpp\.zoom\.us$/i, "")
+  .trim()
+  .toLowerCase();
 }
 
 export function isValidJid(jid) {
