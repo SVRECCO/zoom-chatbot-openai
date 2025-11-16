@@ -10,6 +10,7 @@
     "prod": "NODE_ENV=production node index.js",
     "setup-db": "node scripts/setup-database.js",
     "migrate-workspaces": "node scripts/migrateToWorkspaces.js",
+    "fix-jid-casing": "node scripts/fixJidCasing.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
